@@ -3,6 +3,7 @@ import torch.nn as nn
 import torch.optim as optim
 import torch.nn.functional as F
 from random import sample
+import pickle
 
 import streamlit as st
 
@@ -90,10 +91,16 @@ def generate_sample(char_rnn, seed_phrase=' ', max_length=MAX_LENGTH,
     return ''.join([tokens[ix] for ix in x_sequence.data.numpy()[0]])
 
 
+def load_obj(name):
+    with open(name + '.pkl', 'rb') as f:
+        return pickle.load(f)
+
 def main():
     # st.text('Hello!')
     char_rnn = CharRNNCell()
     char_rnn.load_state_dict(torch.load(PATH))
+    name = 'token_to_idx'
+    token_to_idx = load_obj(name)
     poem = generate_sample(char_rnn, seed_phrase='начало', temperature=0.5)
     st.text(poem)
 
