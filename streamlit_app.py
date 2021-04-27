@@ -2,10 +2,12 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 import torch.nn.functional as F
-
 from random import sample
 
 import streamlit as st
+
+PATH = 'rnn_model.pt'
+MAX_LENGTH = 528
 
 
 class CharRNNCell(nn.Module):
@@ -54,13 +56,46 @@ class CharRNNCell(nn.Module):
         return torch.zeros(batch_size, self.num_units, requires_grad=True)
 
 
-PATH = 'rnn_model.pt'
+def generate_sample(char_rnn, seed_phrase=' ', max_length=MAX_LENGTH,
+                    temperature=1.0):
+    """
+    The function generates text given a phrase of length of at least SEQ_LENGTH.
+    :param seed_phrase: prefix characters, the sequence that the RNN 
+    is asked to continue
+    :param max_length: maximum output length, including seed_phrase length
+    :param temperature: coefficient for sampling; higher temperature produces 
+    more chaotic outputs, smaller temperature converges to the single 
+    most likely output
+    """
+    x_sequence = [token_to_idx[token] for token in seed_phrase]
+    x_sequence = torch.tensor([x_sequence], dtype=torch.int64)
+    hid_state = char_rnn.initial_state(batch_size=1)
+    hid_state
+
+    # feed the seed phrase if there is any
+    for i in range(len(seed_phrase) - 1):
+        hid_state
+        hid_state, _ = char_rnn(x_sequence[:, i], hid_state)
+
+    # start generating
+    for _ in range(max_length - len(seed_phrase)):
+        hid_state, logp_next = char_rnn(x_sequence[:, -1], hid_state)
+        temp = F.softmax(logp_next / temperature, dim=-1)
+        p_next = temp.data.numpy()[0]
+        next_ix = np.random.choice(num_tokens, p=p_next)
+        next_ix = torch.tensor([[next_ix]], dtype=torch.int64)
+        x_sequence = torch.cat([x_sequence, next_ix], dim=-1)
+
+    # x_sequence = x_sequence.to('cpu')
+    return ''.join([tokens[ix] for ix in x_sequence.data.numpy()[0]])
 
 
 def main():
-    st.text('Hello!')
+    # st.text('Hello!')
     char_rnn = CharRNNCell()
     char_rnn.load_state_dict(torch.load(PATH))
+    poem = generate_sample(char_rnn, seed_phrase='начало', temperature=0.5)
+    st.text(poem)
 
 
 if __name__ == '__main__':
