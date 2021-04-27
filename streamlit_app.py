@@ -2,7 +2,7 @@ import streamlit as st
 
 
 def main():
-    print('hello')
+    st.text('Hello!')
 
 
 if __name__ == '__main__':
