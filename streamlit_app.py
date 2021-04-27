@@ -13,7 +13,7 @@ class CharRNNCell(nn.Module):
     Implement the scheme above as a PyTorch module.
     """
 
-    def __init__(self, num_tokens=len(tokens), embedding_size=36,
+    def __init__(self, num_tokens=36, embedding_size=36,
                  rnn_num_units=100):
         super(self.__class__, self).__init__()
 
