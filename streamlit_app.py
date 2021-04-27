@@ -4,6 +4,8 @@ import torch.optim as optim
 import torch.nn.functional as F
 from random import sample
 import pickle
+import numpy as np
+import re
 
 import streamlit as st
 
@@ -57,8 +59,8 @@ class CharRNNCell(nn.Module):
         return torch.zeros(batch_size, self.num_units, requires_grad=True)
 
 
-def generate_sample(char_rnn, seed_phrase=' ', max_length=MAX_LENGTH,
-                    temperature=1.0):
+def generate_sample(model, token_to_idx, seed_phrase=' ', max_length=MAX_LENGTH,
+                    temperature=1.0, ):
     """
     The function generates text given a phrase of length of at least SEQ_LENGTH.
     :param seed_phrase: prefix characters, the sequence that the RNN 
@@ -70,23 +72,24 @@ def generate_sample(char_rnn, seed_phrase=' ', max_length=MAX_LENGTH,
     """
     x_sequence = [token_to_idx[token] for token in seed_phrase]
     x_sequence = torch.tensor([x_sequence], dtype=torch.int64)
-    hid_state = char_rnn.initial_state(batch_size=1)
-    hid_state
+    hid_state = model.initial_state(batch_size=1)
+    # hid_state
 
     # feed the seed phrase if there is any
     for i in range(len(seed_phrase) - 1):
-        hid_state
-        hid_state, _ = char_rnn(x_sequence[:, i], hid_state)
+        # hid_state
+        hid_state, _ = model(x_sequence[:, i], hid_state)
 
     # start generating
     for _ in range(max_length - len(seed_phrase)):
-        hid_state, logp_next = char_rnn(x_sequence[:, -1], hid_state)
+        hid_state, logp_next = model(x_sequence[:, -1], hid_state)
         temp = F.softmax(logp_next / temperature, dim=-1)
         p_next = temp.data.numpy()[0]
-        next_ix = np.random.choice(num_tokens, p=p_next)
+        next_ix = np.random.choice(36, p=p_next)
         next_ix = torch.tensor([[next_ix]], dtype=torch.int64)
         x_sequence = torch.cat([x_sequence, next_ix], dim=-1)
 
+    tokens = list(token_to_idx.keys())
     # x_sequence = x_sequence.to('cpu')
     return ''.join([tokens[ix] for ix in x_sequence.data.numpy()[0]])
 
@@ -95,15 +98,40 @@ def load_obj(name):
     with open(name + '.pkl', 'rb') as f:
         return pickle.load(f)
 
+def good_chars(text):
+    temp = re.sub(r'[а-я]|ё|\n|-| ', '', text)
+    if temp == '':
+        return True
+    return False
+
 def main():
     # st.text('Hello!')
-    char_rnn = CharRNNCell()
-    char_rnn.load_state_dict(torch.load(PATH))
-    name = 'token_to_idx'
-    token_to_idx = load_obj(name)
-    poem = generate_sample(char_rnn, seed_phrase='начало', temperature=0.5)
-    st.text(poem)
+    begin = st.text_input(
+        'Начало стиха',   
+    )
+    if len(begin) != 0 and good_chars(begin):
 
+        char_rnn = CharRNNCell()
+        char_rnn.load_state_dict(torch.load(PATH))
+        name = 'token_to_idx'
+        token_to_idx = load_obj(name)
+        value = st.slider(
+            label='temperature',
+            min_value=0.01,
+            max_value=1.0,
+            step=0.01,
+        )
+        poem = generate_sample(
+            model=char_rnn,
+            seed_phrase=begin,
+            temperature=value,
+            token_to_idx=token_to_idx,
+        )
+        st.text(poem)
+    elif len(begin) == 0:
+        st.text('Введите что-нибудь')
+    else:
+        st.text('Вводите только строчные русские буквы, пробелы и тире.')
 
 if __name__ == '__main__':
     main()
