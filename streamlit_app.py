@@ -10,7 +10,11 @@ import re
 import streamlit as st
 
 PATH = 'rnn_model.pt'
+PATH_LSTM = 'lstm_3_model.pt'
 MAX_LENGTH = 528
+NUM_TOKENS = 36
+DEVICE = 'cpu'
+TOKEN_TO_ID_PATH = 'token_to_idx'
 
 
 class CharRNNCell(nn.Module):
@@ -94,9 +98,71 @@ def generate_sample(model, token_to_idx, seed_phrase=' ', max_length=MAX_LENGTH,
     return ''.join([tokens[ix] for ix in x_sequence.data.numpy()[0]])
 
 
+class LSTM_3_RNNModule(nn.Module):
+    def __init__(self, n_vocab=NUM_TOKENS,
+                 seq_size=MAX_LENGTH, embedding_size=36,
+                 lstm_size=100):
+        super(LSTM_3_RNNModule, self).__init__()
+        self.seq_size = seq_size
+        self.lstm_size = lstm_size
+        self.embedding = nn.Embedding(n_vocab, embedding_size)
+        self.lstm = nn.LSTM(embedding_size,
+                            lstm_size,
+                            batch_first=True)
+        self.dense = nn.Linear(lstm_size, n_vocab)
+
+    def forward(self, x, prev_state):
+        embed = self.embedding(x)
+        output, state = self.lstm(embed, prev_state)
+        logits = self.dense(output)
+
+        return logits, state
+
+    def zero_state(self, batch_size):
+        return (torch.zeros(1, batch_size, self.lstm_size),
+                torch.zeros(1, batch_size, self.lstm_size))
+
+
+def predict_3(
+    net,
+    token_to_idx,
+    idx_to_token,
+    device=DEVICE,
+    seed_phrase=' ',
+    max_length=MAX_LENGTH,
+    temperature=1.0,
+):
+    net.eval()
+    words = seed_phrase
+    words = [i for i in words]
+    state_h, state_c = net.zero_state(1)
+    state_h = state_h.to(device)
+    state_c = state_c.to(device)
+    for w in words:
+        ix = torch.tensor([[token_to_idx[w]]]).to(device)
+        output, (state_h, state_c) = net(ix, (state_h, state_c))
+
+    p_next = F.softmax(output / temperature, dim=-1).data.numpy()[0][0]
+
+    next_ix = np.random.choice(NUM_TOKENS, p=p_next)
+    words.append(idx_to_token[next_ix])
+
+    for _ in range(max_length):
+        ix = torch.tensor([[next_ix]]).to(device)
+        output, (state_h, state_c) = net(ix, (state_h, state_c))
+
+        p_next = F.softmax(output / temperature, dim=-1).data.numpy()[0][0]
+
+        next_ix = np.random.choice(NUM_TOKENS, p=p_next)
+        words.append(idx_to_token[next_ix])
+
+    return ''.join(words)[:-4]
+
+
 def load_obj(name):
     with open(name + '.pkl', 'rb') as f:
         return pickle.load(f)
+
 
 def good_chars(text):
     temp = re.sub(r'[а-я]|ё|\n|-| ', '', text)
@@ -104,34 +170,52 @@ def good_chars(text):
         return True
     return False
 
+
 def main():
     # st.text('Hello!')
+    token_to_idx = load_obj(TOKEN_TO_ID_PATH)
+    idx_to_token = {val: key for key, val in token_to_idx.items()}
     begin = st.text_input(
-        'Начало стиха',   
+        'Начало стиха',
     )
     if len(begin) != 0 and good_chars(begin):
 
         char_rnn = CharRNNCell()
         char_rnn.load_state_dict(torch.load(PATH))
-        name = 'token_to_idx'
-        token_to_idx = load_obj(name)
-        value = st.slider(
+        lstm_3 = LSTM_3_RNNModule()
+        lstm_3.load_state_dict(torch.load(PATH_LSTM))
+        # name = 'token_to_idx'
+        # token_to_idx = load_obj(name)
+        value_temperature = st.slider(
             label='temperature',
             min_value=0.01,
-            max_value=1.0,
+            max_value=5.0,
             step=0.01,
         )
         poem = generate_sample(
             model=char_rnn,
             seed_phrase=begin,
-            temperature=value,
+            temperature=value_temperature,
             token_to_idx=token_to_idx,
         )
+        st.markdown("<h3 style='text-align: center;'>RNN</h3>",
+            unsafe_allow_html=True)
         st.text(poem)
+        poem_lstm = predict_3(
+            net=lstm_3,
+            token_to_idx=token_to_idx,
+            idx_to_token=idx_to_token,
+            seed_phrase=begin,
+            temperature=value_temperature,
+        )
+        st.markdown("<h3 style='text-align: center;'>LSTM</h3>",
+            unsafe_allow_html=True)
+        st.text(poem_lstm)
     elif len(begin) == 0:
         st.text('Введите что-нибудь')
     else:
         st.text('Вводите только строчные русские буквы, пробелы и тире.')
+
 
 if __name__ == '__main__':
     main()
