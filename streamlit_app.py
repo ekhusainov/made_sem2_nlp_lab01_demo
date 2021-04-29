@@ -1,13 +1,12 @@
-import torch
-import torch.nn as nn
-import torch.optim as optim
-import torch.nn.functional as F
-from random import sample
+"""MADE. Второй семестр. NLP. LAB01."""
 import pickle
-import numpy as np
 import re
 
+import numpy as np
 import streamlit as st
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
 
 PATH = 'rnn_model.pt'
 PATH_LSTM = 'lstm_3_model.pt'
@@ -24,26 +23,24 @@ class CharRNNCell(nn.Module):
 
     def __init__(self, num_tokens=36, embedding_size=36,
                  rnn_num_units=100):
-        super(self.__class__, self).__init__()
-
+        super(CharRNNCell, self).__init__()
         self.num_units = rnn_num_units
         self.embedding = nn.Embedding(num_tokens, embedding_size)
         self.rnn_update = nn.Linear(embedding_size + rnn_num_units,
                                     rnn_num_units)
         self.rnn_to_logits = nn.Linear(rnn_num_units, num_tokens)
 
-    def forward(self, x, h_prev):
+    def forward(self, current_x, h_prev):
         """
-        This method computes h_next(x, h_prev) and log P(x_next | h_next). 
+        This method computes h_next(x, h_prev) and log P(x_next | h_next).
         We'll call it repeatedly to produce the whole sequence.
 
         :param x: batch of character ids, containing vector of int64 type
-        :param h_prev: previous RNN hidden states, containing matrix 
+        :param h_prev: previous RNN hidden states, containing matrix
         [batch, rnn_num_units] of float32 type
         """
         # get vector embedding of x
-        x_emb = self.embedding(x)
-        h_prev = h_prev
+        x_emb = self.embedding(current_x)
 
         # compute next hidden state using self.rnn_update
         x_and_h = torch.cat([h_prev, x_emb], dim=-1)
@@ -67,11 +64,11 @@ def generate_sample(model, token_to_idx, seed_phrase=' ', max_length=MAX_LENGTH,
                     temperature=1.0, ):
     """
     The function generates text given a phrase of length of at least SEQ_LENGTH.
-    :param seed_phrase: prefix characters, the sequence that the RNN 
+    :param seed_phrase: prefix characters, the sequence that the RNN
     is asked to continue
     :param max_length: maximum output length, including seed_phrase length
-    :param temperature: coefficient for sampling; higher temperature produces 
-    more chaotic outputs, smaller temperature converges to the single 
+    :param temperature: coefficient for sampling; higher temperature produces
+    more chaotic outputs, smaller temperature converges to the single
     most likely output
     """
     x_sequence = [token_to_idx[token] for token in seed_phrase]
@@ -98,11 +95,11 @@ def generate_sample(model, token_to_idx, seed_phrase=' ', max_length=MAX_LENGTH,
     return ''.join([tokens[ix] for ix in x_sequence.data.numpy()[0]])
 
 
-class LSTM_3_RNNModule(nn.Module):
+class LSTMnet(nn.Module):
     def __init__(self, n_vocab=NUM_TOKENS,
                  seq_size=MAX_LENGTH, embedding_size=36,
                  lstm_size=100):
-        super(LSTM_3_RNNModule, self).__init__()
+        super(LSTMnet, self).__init__()
         self.seq_size = seq_size
         self.lstm_size = lstm_size
         self.embedding = nn.Embedding(n_vocab, embedding_size)
@@ -111,8 +108,8 @@ class LSTM_3_RNNModule(nn.Module):
                             batch_first=True)
         self.dense = nn.Linear(lstm_size, n_vocab)
 
-    def forward(self, x, prev_state):
-        embed = self.embedding(x)
+    def forward(self, current_x, prev_state):
+        embed = self.embedding(current_x)
         output, state = self.lstm(embed, prev_state)
         logits = self.dense(output)
 
@@ -123,45 +120,37 @@ class LSTM_3_RNNModule(nn.Module):
                 torch.zeros(1, batch_size, self.lstm_size))
 
 
-def predict_3(
-    net,
-    token_to_idx,
-    idx_to_token,
-    device=DEVICE,
-    seed_phrase=' ',
-    max_length=MAX_LENGTH,
-    temperature=1.0,
-):
+def predict_3(net, token_to_idx, idx_to_token, device=DEVICE,
+              seed_phrase=' ', max_length=MAX_LENGTH, temperature=1.0):
     net.eval()
-    words = seed_phrase
-    words = [i for i in words]
+    char_list = list(seed_phrase)
     state_h, state_c = net.zero_state(1)
     state_h = state_h.to(device)
     state_c = state_c.to(device)
-    for w in words:
-        ix = torch.tensor([[token_to_idx[w]]]).to(device)
-        output, (state_h, state_c) = net(ix, (state_h, state_c))
+    for current_char in char_list:
+        elem_ix = torch.tensor([[token_to_idx[current_char]]]).to(device)
+        output, (state_h, state_c) = net(elem_ix, (state_h, state_c))
 
     p_next = F.softmax(output / temperature, dim=-1).data.numpy()[0][0]
 
     next_ix = np.random.choice(NUM_TOKENS, p=p_next)
-    words.append(idx_to_token[next_ix])
+    char_list.append(idx_to_token[next_ix])
 
     for _ in range(max_length):
-        ix = torch.tensor([[next_ix]]).to(device)
-        output, (state_h, state_c) = net(ix, (state_h, state_c))
+        elem_ix = torch.tensor([[next_ix]]).to(device)
+        output, (state_h, state_c) = net(elem_ix, (state_h, state_c))
 
         p_next = F.softmax(output / temperature, dim=-1).data.numpy()[0][0]
 
         next_ix = np.random.choice(NUM_TOKENS, p=p_next)
-        words.append(idx_to_token[next_ix])
+        char_list.append(idx_to_token[next_ix])
 
-    return ''.join(words)[:-4]
+    return ''.join(char_list)[:-4]
 
 
 def load_obj(name):
-    with open(name + '.pkl', 'rb') as f:
-        return pickle.load(f)
+    with open(name + '.pkl', 'rb') as our_file:
+        return pickle.load(our_file)
 
 
 def good_chars(text):
@@ -182,10 +171,9 @@ def main():
 
         char_rnn = CharRNNCell()
         char_rnn.load_state_dict(torch.load(PATH))
-        lstm_3 = LSTM_3_RNNModule()
+        lstm_3 = LSTMnet()
         lstm_3.load_state_dict(torch.load(PATH_LSTM))
-        # name = 'token_to_idx'
-        # token_to_idx = load_obj(name)
+
         value_temperature = st.slider(
             label='temperature',
             min_value=0.01,
@@ -199,7 +187,7 @@ def main():
             token_to_idx=token_to_idx,
         )
         st.markdown("<h3 style='text-align: center;'>RNN</h3>",
-            unsafe_allow_html=True)
+                    unsafe_allow_html=True)
         st.text(poem)
         poem_lstm = predict_3(
             net=lstm_3,
@@ -209,7 +197,7 @@ def main():
             temperature=value_temperature,
         )
         st.markdown("<h3 style='text-align: center;'>LSTM</h3>",
-            unsafe_allow_html=True)
+                    unsafe_allow_html=True)
         st.text(poem_lstm)
     elif len(begin) == 0:
         st.text('Введите что-нибудь')
